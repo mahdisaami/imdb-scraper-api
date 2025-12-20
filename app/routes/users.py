@@ -5,18 +5,17 @@ from sqlalchemy.orm import Session
 from starlette import status
 
 from app.core.security import verify_password, create_access_token, hash_password
-from app.deps import get_db, get_current_user
+from app.deps import get_db, get_current_user, get_user_service
 from app.models import User
 from app.schemas.users import UserRead, UserCreate, UserResponse, UserPatch
 from app.services.exceptions import EmailTakenException
-from app.services.users import get_user_by_id_or_404, db_commit_refresh, get_all_users_db, db_add_commit_refresh, \
-    db_delete_commit, get_user_by_username
+from app.services.users import  UserService
 
 router = APIRouter(tags=["users"])
 
 @router.post("/users/create", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def create_user(user:UserCreate, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(
+async def create_user(user:UserCreate, user_service: UserService = Depends(get_user_service)):
+    db_user = user_service.db.query(User).filter(
         or_(
             User.username == user.username,
             User.email == user.email
@@ -32,27 +31,26 @@ async def create_user(user:UserCreate, db: Session = Depends(get_db)):
     user.password = hash_password(user.password)
     new_user = User(**user.model_dump())
 
-    saved_instance = db_add_commit_refresh(db, new_user)
+    saved_instance = user_service.db_add_commit_refresh( new_user)
 
     return {"message": "User created successfully", "user": saved_instance}
 
 
 @router.get("/users/get/{user_id}", response_model=UserResponse)
-async def get_user(user_id:int, db: Session = Depends(get_db)):
-    db_user = get_user_by_id_or_404(user_id, db)
+async def get_user(user_id:int, user_service: UserService = Depends(get_user_service)):
+    db_user = user_service.get_user_by_id_or_404(user_id)
     return {"message": "User fetched successfully", "user": db_user}
 
 
 @router.get("/users", response_model=list[UserRead])
-async def get_all_users(db: Session = Depends(get_db)):
-    db_users = get_all_users_db(db)
+async def get_all_users(user_service: UserService = Depends(get_user_service)):
+    db_users = user_service.get_all_users_db()
     return db_users
 
 
-
 @router.post("/users/login")
-def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = get_user_by_username(username=form.username, db=db)
+def login(form: OAuth2PasswordRequestForm = Depends(), user_service: UserService = Depends(get_user_service)):
+    user = user_service.get_user_by_username(username=form.username)
 
     if not verify_password(form.password, user.password):
         raise HTTPException(status_code=401, detail="Invalid credentials.", headers={'x-error-code': 'INVALID_CREDENTIALS'})
@@ -68,9 +66,9 @@ def profile(user = Depends(get_current_user)):
 
 
 @router.put("/users/update/{user_id}", response_model=UserResponse, status_code=status.HTTP_200_OK)
-def update_user(user_id:int, user_update: UserCreate, db: Session = Depends(get_db)):
-    db_user = get_user_by_id_or_404(user_id, db)
-    email_exists = db.query(User).filter(User.email == user_update.email).first()
+def update_user(user_id:int, user_update: UserCreate, user_service: UserService = Depends(get_user_service)):
+    db_user = user_service.get_user_by_id_or_404(user_id)
+    email_exists = user_service.db.query(User).filter(User.email == user_update.email).first()
 
     if email_exists and email_exists.id != user_id:
         raise EmailTakenException()
@@ -83,15 +81,15 @@ def update_user(user_id:int, user_update: UserCreate, db: Session = Depends(get_
         if hasattr(db_user, key):
             setattr(db_user, key, value)
 
-    saved_instance = db_commit_refresh(db, db_user)
+    saved_instance = user_service.db_commit_refresh(db_user)
 
     return {"message": "User updated", "user": saved_instance}
 
 
 @router.patch("/users/patch/{user_id}", response_model=UserResponse, status_code=status.HTTP_200_OK)
-def patch_user(user_id:int, user_update: UserPatch, db: Session = Depends(get_db)):
-    db_user = get_user_by_id_or_404(user_id, db)
-    email_exists = db.query(User).filter(User.email == user_update.email).first()
+def patch_user(user_id:int, user_update: UserPatch, user_service: UserService = Depends(get_user_service)):
+    db_user = user_service.get_user_by_id_or_404(user_id)
+    email_exists = user_service.db.query(User).filter(User.email == user_update.email).first()
 
     if email_exists and email_exists.id != user_id:
         raise EmailTakenException()
@@ -106,15 +104,15 @@ def patch_user(user_id:int, user_update: UserPatch, db: Session = Depends(get_db
         if hasattr(db_user, key):
             setattr(db_user, key, value)
 
-    saved_instance = db_commit_refresh(db, db_user)
+    saved_instance = user_service.db_commit_refresh( db_user)
 
     return {"message": "User patched", "user": saved_instance}
 
 
 @router.delete("/users/delete/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(user_id:int, db: Session = Depends(get_db)):
-    db_user = get_user_by_id_or_404(user_id, db)
+def delete_user(user_id:int, user_service: UserService = Depends(get_user_service)):
+    db_user = user_service.get_user_by_id_or_404(user_id)
 
-    db_delete_commit(db, db_user)
+    user_service.db_delete_commit( db_user)
 
     return {"message": "User deleted successfully"}
