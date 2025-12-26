@@ -1,5 +1,8 @@
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
+
+from fastapi import FastAPI
 
 LOG_DIR = Path("app/logs")
 LOG_DIR.mkdir(exist_ok=True)
@@ -15,3 +18,9 @@ def startup_event():
 
 def shutdown_event():
     logging.info("Application is shutting down.")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    startup_event()
+    yield
+    shutdown_event()
